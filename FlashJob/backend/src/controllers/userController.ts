@@ -1,86 +1,107 @@
 import { Request, Response } from 'express';
-import pool from '../config/database';
+import { prisma } from '../config/database'; 
 
-// GET /users/:username - public profile
-export const getPublicProfile = async (req: Request, res: Response): Promise<void> => {
+// 1. ดึงโปรไฟล์สาธารณะ (ไม่ต้องใช้ Token)
+export const getPublicProfile = async (req: Request, res: Response) => {
   const { username } = req.params;
 
   try {
-    const result = await pool.query(
-      `SELECT id, username, full_name, avatar_url, bio, role,
-              is_verified, rating_avg, rating_count, created_at
-       FROM users WHERE username = $1`,
-      [username]
-    );
+    const user = await prisma.user.findUnique({
+      where: { username },
+      select: {
+        id: true,
+        username: true,
+        full_name: true,
+        avatar_url: true,
+        bio: true,
+        role: true,
+        is_verified: true,
+        rating_avg: true,
+        rating_count: true,
+        created_at: true,
+      }
+    });
 
-    if (result.rows.length === 0) {
-      res.status(404).json({ message: 'User not found' });
-      return;
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
     }
 
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
+    res.json(user);
+  } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
 };
 
-// POST /users/saved-gigs/:gigId
-export const saveGig = async (req: Request, res: Response): Promise<void> => {
+// 2. บันทึกงานที่สนใจ (Saved Gig)
+export const saveGig = async (req: Request, res: Response) => {
   const { gigId } = req.params;
   const userId = req.user!.userId;
 
   try {
-    await pool.query(
-      `INSERT INTO saved_gigs (user_id, gig_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [userId, gigId]
-    );
-    res.json({ message: 'Gig saved' });
-  } catch (err) {
-    console.error(err);
+    const saved = await prisma.savedGig.upsert({
+      where: {
+        user_id_gig_id: {
+          user_id: userId,
+          gig_id: gigId,
+        },
+      },
+      update: {}, // ถ้ามีอยู่แล้วไม่ต้องแก้ไขอะไร
+      create: {
+        user_id: userId,
+        gig_id: gigId,
+      },
+    });
+
+    res.json({ message: 'Gig saved', data: saved });
+  } catch (error: any) {
+    res.status(500).json({ message: 'Could not save gig' });
+  }
+};
+
+// 3. ดึงรายการงานที่บันทึกไว้ทั้งหมด
+export const getSavedGigs = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  try {
+    const savedGigs = await prisma.savedGig.findMany({
+      where: { user_id: userId },
+      include: {
+        gig: {
+          include: {
+            seller: {
+              select: { username: true, avatar_url: true }
+            },
+            packages: {
+              take: 1,
+              orderBy: { price: 'asc' }
+            }
+          }
+        }
+      }
+    });
+
+    res.json(savedGigs);
+  } catch (error: any) {
     res.status(500).json({ message: 'Server error' });
   }
 };
 
-// DELETE /users/saved-gigs/:gigId
-export const unsaveGig = async (req: Request, res: Response): Promise<void> => {
+// 4. ยกเลิกการบันทึกงาน
+export const unsaveGig = async (req: Request, res: Response) => {
   const { gigId } = req.params;
   const userId = req.user!.userId;
 
   try {
-    await pool.query(
-      'DELETE FROM saved_gigs WHERE user_id = $1 AND gig_id = $2',
-      [userId, gigId]
-    );
-    res.json({ message: 'Gig removed from saved' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// GET /users/saved-gigs
-export const getSavedGigs = async (req: Request, res: Response): Promise<void> => {
-  const userId = req.user!.userId;
-
-  try {
-    const result = await pool.query(
-      `SELECT g.id, g.title, g.rating_avg, g.rating_count, g.created_at,
-              u.username, u.avatar_url, u.is_verified,
-              (SELECT MIN(price) FROM gig_packages WHERE gig_id = g.id) as starting_price,
-              (SELECT image_url FROM gig_images WHERE gig_id = g.id AND is_cover = true LIMIT 1) as cover_image,
-              sg.created_at as saved_at
-       FROM saved_gigs sg
-       JOIN gigs g ON sg.gig_id = g.id
-       JOIN users u ON g.seller_id = u.id
-       WHERE sg.user_id = $1
-       ORDER BY sg.created_at DESC`,
-      [userId]
-    );
-
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    await prisma.savedGig.delete({
+      where: {
+        user_id_gig_id: {
+          user_id: userId,
+          gig_id: gigId
+        }
+      }
+    });
+    res.json({ message: 'Unsaved success' });
+  } catch (error: any) {
+    res.status(500).json({ message: 'Error unsaving gig or gig not found' });
   }
 };

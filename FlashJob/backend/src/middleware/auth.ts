@@ -1,47 +1,56 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { JwtPayload } from '../types/indexT';
+import { supabaseAuth } from '../config/database';
+import { JwtPayload } from '../types/indexT'; // Import interface ที่คุณเขียนไว้มาใช้
 
-// Extend Express Request to carry user info
+// ── ส่วนสำคัญ: บอกให้ TS รู้จัก req.user ──────────────────
 declare global {
   namespace Express {
     interface Request {
-      user?: JwtPayload;
+      user?: JwtPayload; // ใช้ JwtPayload ที่มี userId, email, role
     }
   }
 }
 
-export const authenticate = (req: Request, res: Response, next: NextFunction): void => {
+export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ message: 'No token provided' });
-    return;
+  
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'No token provided' });
   }
 
   const token = authHeader.split(' ')[1];
-
+  
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as JwtPayload;
-    req.user = decoded;
+    const { data: { user }, error } = await supabaseAuth.auth.getUser(token);
+
+    if (error || !user) {
+      return res.status(401).json({ message: 'Invalid or expired token' });
+    }
+
+    // ตอนนี้ req.user จะไม่แดงแล้ว เพราะเรา declare ไว้ข้างบน
+    req.user = {
+      userId: user.id,
+      email: user.email!,
+      role: user.user_metadata.role || 'buyer'
+    };
+
     next();
-  } catch {
-    res.status(401).json({ message: 'Invalid or expired token' });
+  } catch (err) {
+    res.status(401).json({ message: 'Auth error' });
   }
 };
 
-export const requireSeller = (req: Request, res: Response, next: NextFunction): void => {
+// Middleware ตรวจสอบสิทธิ์อื่นๆ
+export const requireSeller = (req: Request, res: Response, next: NextFunction) => {
   if (!req.user || req.user.role !== 'seller') {
-    res.status(403).json({ message: 'Seller account required' });
-    return;
+    return res.status(403).json({ message: 'Seller access required' });
   }
   next();
 };
 
-export const requireAdmin = (req: Request, res: Response, next: NextFunction): void => {
+export const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
   if (!req.user || req.user.role !== 'admin') {
-    res.status(403).json({ message: 'Admin access required' });
-    return;
+    return res.status(403).json({ message: 'Admin access required' });
   }
   next();
 };

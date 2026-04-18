@@ -1,25 +1,11 @@
-import { Pool } from 'pg';
-import dotenv from 'dotenv';
+import { PrismaClient } from '@prisma/client';
+import { createClient } from '@supabase/supabase-js';
 
-dotenv.config();
+// ใช้สำหรับจัดการข้อมูลในตาราง
+export const prisma = new PrismaClient();
 
-export const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME || 'flashjob_db',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'password',
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
-
-pool.on('connect', () => {
-  console.log('✅ Connected to PostgreSQL');
-});
-
-pool.on('error', (err) => {
-  console.error('❌ PostgreSQL pool error:', err);
-});
-
-export default pool;
+// ใช้สำหรับระบบ Auth (Register/Login)
+export const supabaseAuth = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!
+);
