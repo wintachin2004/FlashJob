@@ -7,7 +7,142 @@ generator client {
   provider = "prisma-client-js"
 }
 
-model Test {
-  id   String @id @default(uuid())
-  name String
+// ── User Model ─────────────────────────────────────────────
+model User {
+  id             String   @id @default(uuid()) // เชื่อมกับ id ใน Supabase Auth
+  email          String   @unique
+  username       String   @unique
+  full_name      String?
+  avatar_url     String?
+  bio            String?
+  phone          String?
+  role           String   @default("buyer") // buyer, seller, admin
+  is_verified    Boolean  @default(false)
+  rating_avg     Float    @default(0)
+  rating_count   Int      @default(0)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  // Relationships
+  gigs           Gig[]
+  orders_as_buyer Order[]   @relation("BuyerOrders")
+  orders_as_seller Order[]  @relation("SellerOrders")
+  reviews_given  Review[]  @relation("Reviewer")
+  reviews_received Review[] @relation("Reviewee")
+  saved_gigs     SavedGig[]
+}
+
+// ── Category Model ─────────────────────────────────────────
+model Category {
+  id        String   @id @default(uuid())
+  name      String
+  name_th   String?
+  slug      String   @unique
+  icon      String?
+  parent_id String?
+  
+  // Relationships
+  parent    Category?  @relation("CategoryToCategory", fields: [parent_id], references: [id])
+  children  Category[] @relation("CategoryToCategory")
+  gigs      Gig[]
+}
+
+// ── Gig Model ──────────────────────────────────────────────
+model Gig {
+  id           String   @id @default(uuid())
+  seller_id    String
+  category_id  String?
+  title        String
+  description  String?
+  tags         String[]
+  status       String   @default("active") // active, paused, draft
+  rating_avg   Float    @default(0)
+  rating_count Int      @default(0)
+  order_count  Int      @default(0)
+  view_count   Int      @default(0)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  // Relationships
+  seller       User       @relation(fields: [seller_id], references: [id])
+  category     Category?  @relation(fields: [category_id], references: [id])
+  packages     GigPackage[]
+  images       GigImage[]
+  orders       Order[]
+  reviews      Review[]
+  saved_by     SavedGig[]
+}
+
+model GigPackage {
+  id            String   @id @default(uuid())
+  gig_id        String
+  package_type  String   // basic, standard, premium
+  title         String
+  description   String?
+  price         Float
+  delivery_days Int
+  revisions     Int      @default(1)
+  features      String[]
+
+  gig           Gig      @relation(fields: [gig_id], references: [id], onDelete: Cascade)
+  orders        Order[]
+}
+
+model GigImage {
+  id         String  @id @default(uuid())
+  gig_id     String
+  image_url  String
+  is_cover   Boolean @default(false)
+  sort_order Int     @default(0)
+
+  gig        Gig     @relation(fields: [gig_id], references: [id], onDelete: Cascade)
+}
+
+// ── Order Model ────────────────────────────────────────────
+model Order {
+  id           String   @id @default(uuid())
+  buyer_id     String
+  seller_id    String
+  gig_id       String
+  package_id   String
+  price        Float
+  status       String   @default("pending") // pending, in_progress, completed, cancelled
+  requirements String?
+  deadline     DateTime?
+  created_at   DateTime @default(now())
+
+  buyer        User       @relation("BuyerOrders", fields: [buyer_id], references: [id])
+  seller       User       @relation("SellerOrders", fields: [seller_id], references: [id])
+  gig          Gig        @relation(fields: [gig_id], references: [id])
+  package      GigPackage @relation(fields: [package_id], references: [id])
+  review       Review?
+}
+
+// ── Review Model ───────────────────────────────────────────
+model Review {
+  id          String   @id @default(uuid())
+  order_id    String   @unique
+  gig_id      String
+  reviewer_id String
+  reviewee_id String
+  rating      Int
+  comment     String?
+  created_at  DateTime @default(now())
+
+  order       Order    @relation(fields: [order_id], references: [id])
+  gig         Gig      @relation(fields: [gig_id], references: [id])
+  reviewer    User     @relation("Reviewer", fields: [reviewer_id], references: [id])
+  reviewee    User     @relation("Reviewee", fields: [reviewee_id], references: [id])
+}
+
+// ── Saved Gigs (Favorites) ─────────────────────────────────
+model SavedGig {
+  user_id    String
+  gig_id     String
+  created_at DateTime @default(now())
+
+  user       User     @relation(fields: [user_id], references: [id])
+  gig        Gig      @relation(fields: [gig_id], references: [id])
+
+  @@id([user_id, gig_id])
 }
